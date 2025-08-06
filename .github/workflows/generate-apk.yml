@@ -1,0 +1,66 @@
+name: Build and Push Flutter APK
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v3
+
+      - name: Manually install Flutter 3.32.8
+        run: |
+          git clone https://github.com/flutter/flutter.git --branch 3.32.8 --depth 1
+          echo "$GITHUB_WORKSPACE/flutter/bin" >> $GITHUB_PATH
+
+      - name: Flutter doctor
+        run: flutter doctor
+
+      - name: Disable analytics (optional)
+        run: flutter config --no-analytics
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Prepare and push APK to `apk` branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git fetch origin
+
+          # Discard local changes to allow branch switch
+          git reset --hard
+
+          if git ls-remote --exit-code --heads origin apk; then
+            git checkout apk
+          else
+            git checkout --orphan apk
+            git rm -rf .
+            echo "# APK Branch" > README.md
+            git add README.md
+            git commit -m "Initial commit for APK branch"
+            git push origin apk
+            git checkout apk
+          fi
+
+          mkdir -p output
+
+          TIMESTAMP=$(date +'%Y-%m-%d_%H-%M-%S')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          APK_FILENAME="app-release-${TIMESTAMP}-${SHORT_SHA}.apk"
+
+          cp build/app/outputs/flutter-apk/app-release.apk "output/$APK_FILENAME"
+
+          git add "output/$APK_FILENAME"
+          git commit -m "📦 APK - $APK_FILENAME"
+          git push origin apk
